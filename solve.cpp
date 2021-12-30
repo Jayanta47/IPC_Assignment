@@ -29,6 +29,28 @@ int t_z; // walking on VIP channel on either direction
 
 
 int *passengerFreq;
+int passengerID = 0;
+int time_counter = 0;
+int current_kiosk = 1;
+
+// semaphores
+
+// mutex for output purpose so that no two threads can 
+// print at the same time
+sem_t print_mutex;
+
+// kiosk
+// there are in total M kiosk
+// used as a counting semaphore
+sem_t kiosk_mtx;
+
+// binary semaphore to lock the current kiosk number asssigned to a passenger
+sem_t kiosk_count_mtx; 
+
+// security check 
+// N security belts with each belt having ability to serve P passengers at a time
+
+
 
 struct Passenger {
     int id;
@@ -38,9 +60,41 @@ struct Passenger {
 
 void * passengerThread(void* arg) {
     Passenger* p = ((Passenger*)arg);
-
     arg = nullptr;
-    printf("passenger id : %d\n", p->id);
+
+    sem_wait(&print_mutex);
+    printf("Passenger %d has arrived at the airport at time %d\n", p->id, time_counter);
+    sem_post(&print_mutex);
+
+    // waiting for the kiosk
+    sem_wait(&kiosk_mtx);
+    sem_wait(&kiosk_count_mtx);
+    int curr_time = time_counter;
+
+// should this be done outside the critical region??
+    sem_wait(&print_mutex);
+    printf("Passenger %d has started self check in at kiosk %d at time %d\n", p->id, current_kiosk, curr_time);
+    sem_post(&print_mutex);
+
+    current_kiosk++;
+    sleep(t_w);
+    current_kiosk--;
+
+    sem_post(&kiosk_count_mtx);
+    sem_post(&kiosk_mtx);
+
+    // Inside the security check
+    if (!p->isVIP) {
+
+    }
+    else {
+        // move through the security belt
+    }
+
+
+
+
+
 }
 
 void poisson_dist_func() {
@@ -70,7 +124,6 @@ void generatePassengerFreq() {
     std::cout << "poisson_distribution:" << std::endl;
     for (int i=0; i<total_sim_time; ++i)
         std::cout << i << ": " << std::string(passengerFreq[i],'*') << std::endl;
-        // cout<<passengerFreq[i]<<endl;
 }
 
 void readInputFile(string fileName) {
@@ -106,6 +159,11 @@ int main(void) {
 
     readInputFile("input.txt");
     generatePassengerFreq();
+
+    // initializing semaphores
+    sem_init(&kiosk_mtx, 0, n_kiosk);
+    sem_init(&kiosk_count_mtx, 0, 1);
+
     // testFunc();
     pthread_t pt1;
     Passenger *p1 = new Passenger;
