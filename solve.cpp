@@ -80,8 +80,14 @@ void * passengerThread(void* arg) {
     sleep(t_w);
     current_kiosk--;
 
+    curr_time = curr_time+t_w; // NOTICE THIS
+
     sem_post(&kiosk_count_mtx);
     sem_post(&kiosk_mtx);
+
+    sem_wait(&print_mutex);
+    printf("Passenger %d has finished check in at time %d\n", p->id, curr_time);
+    sem_post(&print_mutex);
 
     // Inside the security check
     if (!p->isVIP) {
@@ -121,9 +127,9 @@ void generatePassengerFreq() {
     if (passengerFreq == nullptr){
         cout<<"null"<<endl;
     }
-    std::cout << "poisson_distribution:" << std::endl;
-    for (int i=0; i<total_sim_time; ++i)
-        std::cout << i << ": " << std::string(passengerFreq[i],'*') << std::endl;
+    // std::cout << "poisson_distribution:" << std::endl;
+    // for (int i=0; i<total_sim_time; ++i)
+    //     std::cout << i << ": " << std::string(passengerFreq[i],'*') << std::endl;
 }
 
 void readInputFile(string fileName) {
@@ -161,8 +167,11 @@ int main(void) {
     generatePassengerFreq();
 
     // initializing semaphores
+    sem_init(&print_mutex, 0, 1);
+
     sem_init(&kiosk_mtx, 0, n_kiosk);
     sem_init(&kiosk_count_mtx, 0, 1);
+    
 
     // testFunc();
     pthread_t pt1;
@@ -171,6 +180,7 @@ int main(void) {
     p1->isVIP = false;
     pthread_create(&pt1, NULL, passengerThread, (void*)p1);
 
+    while(1);
     return 0;
 }
 
