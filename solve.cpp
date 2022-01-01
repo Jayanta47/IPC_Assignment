@@ -1,13 +1,13 @@
 #include<cstdio>
 #include<pthread.h>
 #include<semaphore.h>
-#include<queue>
 #include<string> 
 #include<unistd.h>
 #include<iostream>
 #include<fstream>
 #include<math.h>
 #include<random>
+#include<vector>
 
 using namespace std;
 
@@ -33,6 +33,8 @@ int passengerID = 0;
 int time_counter = 0;
 int current_kiosk = 1;
 
+vector<bool> kiosk_slots;
+
 // semaphores
 
 // mutex for output purpose so that no two threads can 
@@ -45,11 +47,17 @@ sem_t print_mutex;
 sem_t kiosk_mtx;
 
 // binary semaphore to lock the current kiosk number asssigned to a passenger
-sem_t kiosk_count_mtx; 
+sem_t kiosk_slot_mtx;
 
 // security check 
 // N security belts with each belt having ability to serve P passengers at a time
 
+vector<sem_t> security_check_semaphores; 
+
+
+// boarding gate mutex
+// allows only one poassenger at a time
+sem_t boarding_gate_mtx;
 
 
 struct Passenger {
@@ -58,79 +66,6 @@ struct Passenger {
     bool gotBoardingPass;
 };
 
-void * passengerThread(void* arg) {
-    Passenger* p = ((Passenger*)arg);
-    arg = nullptr;
-
-    sem_wait(&print_mutex);
-    printf("Passenger %d has arrived at the airport at time %d\n", p->id, time_counter);
-    sem_post(&print_mutex);
-
-    // waiting for the kiosk
-    sem_wait(&kiosk_mtx);
-    sem_wait(&kiosk_count_mtx);
-    int curr_time = time_counter;
-
-// should this be done outside the critical region??
-    sem_wait(&print_mutex);
-    printf("Passenger %d has started self check in at kiosk %d at time %d\n", p->id, current_kiosk, curr_time);
-    sem_post(&print_mutex);
-
-    current_kiosk++;
-    sleep(t_w);
-    current_kiosk--;
-
-    curr_time = curr_time+t_w; // NOTICE THIS
-
-    sem_post(&kiosk_count_mtx);
-    sem_post(&kiosk_mtx);
-
-    sem_wait(&print_mutex);
-    printf("Passenger %d has finished check in at time %d\n", p->id, curr_time);
-    sem_post(&print_mutex);
-
-    // Inside the security check
-    if (!p->isVIP) {
-
-    }
-    else {
-        // move through the security belt
-    }
-
-
-
-
-
-}
-
-void poisson_dist_func() {
-    // const int nrolls = 10000; // number of experiments
-    const int nstars = passengers_per_hr;   // maximum number of stars to distribute
-
-    std::default_random_engine generator;
-    std::poisson_distribution<int> distribution(total_sim_time/2);
-
-    passengerFreq = new int[total_sim_time] {};
-
-    for (int i=0; i<nstars; ++i) {
-        int number = distribution(generator);
-        // cout<<number<<endl;
-        if (number<total_sim_time) ++passengerFreq[number];
-    }
-
-
-}
-
-
-void generatePassengerFreq() {
-    poisson_dist_func();
-    if (passengerFreq == nullptr){
-        cout<<"null"<<endl;
-    }
-    // std::cout << "poisson_distribution:" << std::endl;
-    // for (int i=0; i<total_sim_time; ++i)
-    //     std::cout << i << ": " << std::string(passengerFreq[i],'*') << std::endl;
-}
 
 void readInputFile(string fileName) {
     ifstream InputFile(fileName);
@@ -161,6 +96,150 @@ void readInputFile(string fileName) {
 
 }
 
+
+void poisson_dist_func() {
+    // const int nrolls = 10000; // number of experiments
+    const int nstars = passengers_per_hr;   // maximum number of stars to distribute
+
+    std::default_random_engine generator;
+    std::poisson_distribution<int> distribution(total_sim_time/2);
+
+    passengerFreq = new int[total_sim_time] {};
+
+    for (int i=0; i<nstars; ++i) {
+        int number = distribution(generator);
+        // cout<<number<<endl;
+        if (number<total_sim_time) ++passengerFreq[number];
+    }
+
+
+}
+
+void generatePassengerFreq() {
+    poisson_dist_func();
+    if (passengerFreq == nullptr){
+        cout<<"null"<<endl;
+    }
+    // std::cout << "poisson_distribution:" << std::endl;
+    // for (int i=0; i<total_sim_time; ++i)
+    //     std::cout << i << ": " << std::string(passengerFreq[i],'*') << std::endl;
+}
+
+
+void kiosk_check(int passenger_id) {
+
+    sem_wait(&print_mutex);
+    printf("Passenger %d has arrived at the airport at time %d\n", passenger_id, time_counter);
+    sem_post(&print_mutex);
+
+    int current_kiosk;
+    // waiting for the kiosk
+    sem_wait(&kiosk_mtx);
+    sem_wait(&kiosk_slot_mtx);
+    for( current_kiosk=0;current_kiosk<n_kiosk;current_kiosk++) {
+        if (kiosk_slots[current_kiosk]) {
+            kiosk_slots[current_kiosk] = false;
+            break;
+        } 
+    }
+    sem_post(&kiosk_slot_mtx);
+    if (current_kiosk == n_kiosk) current_kiosk=0;
+    int curr_time = time_counter;
+
+// should this be done outside the critical region??
+    sem_wait(&print_mutex);
+    printf("Passenger %d has started self check in at kiosk %d at time %d\n", passenger_id, current_kiosk+1, curr_time);
+    sem_post(&print_mutex);
+
+
+    sleep(t_w);
+
+    curr_time = curr_time+t_w; // NOTICE THIS
+
+    sem_wait(&kiosk_slot_mtx);
+    if (current_kiosk==0 && kiosk_slots[0]==false) {
+        kiosk_slots[0] = true;
+    }
+    else {
+        kiosk_slots[current_kiosk] = true;
+    }
+    sem_post(&kiosk_slot_mtx);
+
+    sem_post(&kiosk_mtx);
+
+    sem_wait(&print_mutex);
+    printf("Passenger %d has finished check in at time %d\n", passenger_id, curr_time);
+    sem_post(&print_mutex);
+}
+
+
+void boarding_gate_check(Passenger *p) {
+    int curr_time = time_counter;
+    sem_wait(&print_mutex);
+    printf("Passenger %d has started waiting to be boarded at time %d\n", p->id, curr_time);
+    sem_post(&print_mutex);
+
+    sem_wait(&boarding_gate_mtx);
+
+    curr_time = time_counter;
+    sem_wait(&print_mutex);
+    printf("Passenger %d has started boarding the plane at time %d\n", p->id, curr_time);
+    sem_post(&print_mutex);
+
+    sleep(t_y);
+
+    sem_post(&boarding_gate_mtx);
+
+    sem_wait(&print_mutex);
+    printf("Passenger %d has boarded the plane at time %d\n", p->id, curr_time+t_y);
+    sem_post(&print_mutex);
+
+
+}
+
+void * passengerThread(void* arg) {
+    Passenger* p = ((Passenger*)arg);
+    arg = nullptr;
+
+    kiosk_check(p->id);
+
+    // Inside the security check
+    if (!p->isVIP) {
+        // if the passenger is not a VIP, s/he has to go through the security check
+        // randomly select any belt to keep in line
+        int index = abs(random())%n_belts;
+        sem_t *security_mtx = &security_check_semaphores.at(index);
+
+        int curr_time = time_counter;
+        sem_wait(&print_mutex);
+        printf("Passenger %d has started waiting for security check in belt %d from time %d\n", p->id, index, curr_time);
+        sem_post(&print_mutex);
+        sem_wait(security_mtx);
+        
+        curr_time = time_counter;
+        sem_wait(&print_mutex);
+        printf("Passenger %d has started the security check at time %d\n", p->id, curr_time);
+        sem_post(&print_mutex);
+
+        sleep(t_x);
+
+        sem_post(security_mtx);
+
+        sem_wait(&print_mutex);
+        printf("Passenger %d has crossed the security check at time %d\n", p->id, curr_time+t_x);
+        sem_post(&print_mutex);
+
+
+    }
+    else {
+        // move through the vip belt
+    }
+
+    boarding_gate_check(p);
+
+}
+
+
 int main(void) {
 
     readInputFile("input.txt");
@@ -170,7 +249,24 @@ int main(void) {
     sem_init(&print_mutex, 0, 1);
 
     sem_init(&kiosk_mtx, 0, n_kiosk);
-    sem_init(&kiosk_count_mtx, 0, 1);
+
+        // total number of security belts is n_belts(N) and each has passes n_pass_per_belts(P)
+    for(int i=0;i<n_belts;i++) {
+        sem_t *sec_booth_mtx = new sem_t;
+        sem_init(sec_booth_mtx, 0, n_pass_per_belt);
+        security_check_semaphores.push_back(*sec_booth_mtx);
+    }
+
+    sem_init(&kiosk_slot_mtx, 0, 1);
+
+    // kiosk slot initialization
+    for(int i=-0;i<n_kiosk;i++) {
+        kiosk_slots.push_back(true);
+    }
+
+        // boarding gate mutex 
+    
+    sem_init(&boarding_gate_mtx, 0, 1);
     
 
     // testFunc();
