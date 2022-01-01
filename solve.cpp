@@ -13,6 +13,7 @@ using namespace std;
 
 #define passengers_per_hr 200
 #define total_sim_time 60 // in minutes
+#define loose_bpass_percent 20
 
 // airport specifics holding variables
 
@@ -32,6 +33,8 @@ int *passengerFreq;
 int passengerID = 0;
 int time_counter = 0;
 int current_kiosk = 1;
+int vip_forward_cnt = 0;
+int vip_backward_cnt = 0;
 
 vector<bool> kiosk_slots;
 
@@ -59,6 +62,23 @@ vector<sem_t> security_check_semaphores;
 // allows only one poassenger at a time
 sem_t boarding_gate_mtx;
 
+// vip forward direction passenger count mutex
+// binary semaphore
+sem_t forward_cnt_mtx;
+
+// vip backward direction passenger count mutex
+// binary semaphore
+sem_t backward_cnt_mtx;
+
+// semaphore to control the access of right to left passenger's into VIP channel
+// bianry semaphore
+sem_t allow_r2l;
+
+// semaphore to lock the change of direction of VIP channel
+sem_t dir_lock;
+
+// special kiosk mutex
+sem_t special_kiosk_mtx;
 
 struct Passenger {
     int id;
@@ -172,27 +192,156 @@ void kiosk_check(int passenger_id) {
     sem_post(&print_mutex);
 }
 
-
-void boarding_gate_check(Passenger *p) {
-    int curr_time = time_counter;
+void vip_channel_forward(int passenger_id) {
+    // have higher priority
+    // vip channel left-right
+    int curr_time  = time_counter;
     sem_wait(&print_mutex);
-    printf("Passenger %d has started waiting to be boarded at time %d\n", p->id, curr_time);
+    printf("Passenger %d has started waiting for walking on VIP channel(left-to-right) at time %d\n",
+                 passengerID, curr_time);
     sem_post(&print_mutex);
 
-    sem_wait(&boarding_gate_mtx);
+    sem_wait(&forward_cnt_mtx);
+    vip_forward_cnt++;
+
+    curr_time = time_counter;
+
+    if (vip_backward_cnt == 1) {
+        sem_wait(&allow_r2l);
+        sem_wait(&dir_lock);
+    }
+    sem_post(&forward_cnt_mtx);
 
     curr_time = time_counter;
     sem_wait(&print_mutex);
-    printf("Passenger %d has started boarding the plane at time %d\n", p->id, curr_time);
+    printf("Passenger %d has started walking on VIP channel(left-to-right) at time %d\n",
+                 passengerID, curr_time);
     sem_post(&print_mutex);
 
-    sleep(t_y);
-
-    sem_post(&boarding_gate_mtx);
+    sleep(t_z);
 
     sem_wait(&print_mutex);
-    printf("Passenger %d has boarded the plane at time %d\n", p->id, curr_time+t_y);
+    printf("Passenger %d has finished walking on VIP channel(left-to-right) at time %d\n",
+                 passengerID, curr_time+t_z);
     sem_post(&print_mutex);
+
+
+    sem_wait(&forward_cnt_mtx);
+    vip_forward_cnt--;
+    if (vip_forward_cnt == 0) {
+        sem_post(&dir_lock);
+        sem_post(&allow_r2l);
+    }
+    sem_post(&forward_cnt_mtx);
+}
+
+void vip_channel_backward(int passenger_id) {
+    sem_wait(&allow_r2l);
+    sem_post(&allow_r2l);
+    int curr_time = time_counter;
+
+    sem_wait(&print_mutex);
+    printf("Passenger %d has started waiting for walking on VIP channel(right-to-left) at time %d\n",
+                 passengerID, curr_time);
+    sem_post(&print_mutex);
+
+    sem_wait(&backward_cnt_mtx);
+    vip_backward_cnt++;
+    if (vip_backward_cnt==1) {
+        sem_wait(&dir_lock);
+    }
+    sem_post(&backward_cnt_mtx);
+
+    curr_time = time_counter;
+
+    sem_wait(&print_mutex);
+    printf("Passenger %d has started walking on VIP channel(right-to-left) at time %d\n",
+                 passengerID, curr_time);
+    sem_post(&print_mutex);
+
+    sleep(t_z);
+
+    sem_wait(&print_mutex);
+    printf("Passenger %d has finished walking on VIP channel(right-to-left) at time %d\n",
+                 passengerID, curr_time+t_z);
+    sem_post(&print_mutex);
+
+    sem_wait(&backward_cnt_mtx);
+    vip_backward_cnt--;
+    if (vip_backward_cnt==0) {
+        sem_post(&dir_lock);
+    }
+    sem_post(&backward_cnt_mtx);
+
+
+
+}
+
+void goto_special_kiosk(Passenger *p) {
+    int curr_time;
+
+    sem_wait(&special_kiosk_mtx);
+
+    curr_time = time_counter;
+
+    sem_wait(&print_mutex);
+    printf("Passenger %d has started self-check in at special kiosk at time %d\n", p->id, curr_time);
+    sem_post(&print_mutex);
+
+    sleep(t_w);
+    p->gotBoardingPass = true;
+
+    sem_post(&special_kiosk_mtx);
+
+    sem_wait(&print_mutex);
+    printf("Passenger %d has finished check in at special kiosk at time %d\n", p->id, curr_time+t_w);
+    sem_post(&print_mutex);
+
+    vip_channel_forward(p->id);
+    boarding_gate_check(p); // notice, should it not be implemented in vip gate forward?
+
+
+}
+
+bool boarding_gate_check(Passenger *p) {
+    // changing the availability of boarding pass
+    // letting lose_bpass_percent number of passengers to loose boarding pass
+
+    int r_num = abs(random())%100+1;
+    if (r_num>=100-loose_bpass_percent) p->gotBoardingPass = false;
+
+    int curr_time = time_counter;
+    
+    if (p->gotBoardingPass) {
+        sem_wait(&print_mutex);
+        printf("Passenger %d has started waiting to be boarded at time %d\n", p->id, curr_time);
+        sem_post(&print_mutex);
+
+        sem_wait(&boarding_gate_mtx);
+
+        curr_time = time_counter;
+        sem_wait(&print_mutex);
+        printf("Passenger %d has started boarding the plane at time %d\n", p->id, curr_time);
+        sem_post(&print_mutex);
+
+        sleep(t_y);
+
+        sem_post(&boarding_gate_mtx);
+
+        sem_wait(&print_mutex);
+        printf("Passenger %d has boarded the plane at time %d\n", p->id, curr_time+t_y);
+        sem_post(&print_mutex);
+
+        return true;
+    }
+    else {
+        vip_channel_backward(p->id);
+        goto_special_kiosk(p);
+
+
+    }
+
+    return false;
 
 
 }
@@ -225,6 +374,8 @@ void * passengerThread(void* arg) {
 
         sem_post(security_mtx);
 
+        p->gotBoardingPass = true;
+
         sem_wait(&print_mutex);
         printf("Passenger %d has crossed the security check at time %d\n", p->id, curr_time+t_x);
         sem_post(&print_mutex);
@@ -233,7 +384,10 @@ void * passengerThread(void* arg) {
     }
     else {
         // move through the vip belt
+        vip_channel_forward(p->id);
     }
+    
+    
 
     boarding_gate_check(p);
 
@@ -267,6 +421,20 @@ int main(void) {
         // boarding gate mutex 
     
     sem_init(&boarding_gate_mtx, 0, 1);
+
+        // forward count mutex init
+    
+    sem_init(&forward_cnt_mtx, 0, 1);
+
+        // backward count mutex init
+
+    sem_init(&backward_cnt_mtx, 0, 1);
+
+    sem_init(&allow_r2l, 0, 1);
+
+    sem_init(&dir_lock, 0, 1);
+
+    sem_init(&special_kiosk_mtx, 0, 1);
     
 
     // testFunc();
@@ -279,6 +447,19 @@ int main(void) {
     while(1);
     return 0;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 // float nextTime()
