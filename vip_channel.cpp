@@ -10,6 +10,7 @@ extern sem_t backward_cnt_mtx;
 
 extern int vip_forward_cnt;
 extern int vip_backward_cnt;
+extern int t_z;
 
 void vip_channel_forward(int passenger_id) {
     // have higher priority

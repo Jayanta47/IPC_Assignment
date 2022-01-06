@@ -7,6 +7,8 @@ extern void goto_special_kiosk(Passenger *p);
 extern sem_t print_mutex;
 extern sem_t boarding_gate_mtx;
 
+extern int t_y;
+
 bool boarding_gate_check(Passenger *p) {
     // changing the availability of boarding pass
     // letting lose_bpass_percent number of passengers to loose boarding pass
