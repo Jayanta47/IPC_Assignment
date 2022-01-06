@@ -23,6 +23,8 @@ int t_x; // security check
 int t_y; // boarding at the gate
 int t_z; // walking on VIP channel on either direction
 
+// variable to record the starting time of the program
+time_t t_begin;
 
 int *passengerFreq;
 int passengerID = 0;
@@ -101,16 +103,25 @@ void * passengerThread(void* arg);
 void readInputFile(string fileName);
 void *createNewPassengerThread(void *arg);
 
-int readTimeCount() {
-    sem_wait(&time_lock_mtx_1);
-    sem_post(&time_lock_mtx_1);
+// int readTimeCount() {
+//     sem_wait(&time_lock_mtx_1);
+//     sem_post(&time_lock_mtx_1);
 
-    sem_wait(&time_lock_mtx_2);
-    int timeCnt = t_ctr->readTime();
-    sem_post(&time_lock_mtx_2);
+//     sem_wait(&time_lock_mtx_2);
+//     int timeCnt = t_ctr->readTime();
+//     sem_post(&time_lock_mtx_2);
     
-    return timeCnt;
+//     return timeCnt;
 
+// }
+
+int readTimeCount() {
+    sem_wait(&time_lock_mtx_3);
+    time_t end = time(NULL);
+    int timeCnt = static_cast<int> (end-t_begin);
+    sem_post(&time_lock_mtx_3);
+
+    return timeCnt;
 }
 
 
@@ -193,6 +204,8 @@ int main(void) {
     t_ctr = new TimeObj();
 
     Timer t(true);
+
+    t_begin = time(NULL);
 
     t.setTimeout(total_sim_time*1000*3);
     t.setInterval(1000);

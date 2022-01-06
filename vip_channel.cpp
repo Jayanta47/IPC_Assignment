@@ -61,7 +61,7 @@ void vip_channel_forward(int passenger_id) {
 void vip_channel_backward(Passenger *p) {
     int curr_time = readTimeCount();
     sem_wait(&print_mutex);
-    printf("Passenger %d%s has started waiting for walking on VIP channel(right-to-left) at time %d\n",
+    printf("Passenger %d%shas started waiting for walking on VIP channel(right-to-left) at time %d\n",
                  p->id, p->isVIP?" (VIP) ":" ", curr_time);
     sem_post(&print_mutex);
     sem_wait(&allow_r2l);
@@ -77,7 +77,7 @@ void vip_channel_backward(Passenger *p) {
     curr_time = readTimeCount();
 
     sem_wait(&print_mutex);
-    printf("Passenger %d%s has started walking on VIP channel(right-to-left) at time %d\n",
+    printf("Passenger %d%shas started walking on VIP channel(right-to-left) at time %d\n",
                  p->id, p->isVIP?" (VIP) ":" ", curr_time);
     sem_post(&print_mutex);
 
@@ -87,7 +87,7 @@ void vip_channel_backward(Passenger *p) {
     curr_time = readTimeCount();
 
     sem_wait(&print_mutex);
-    printf("Passenger %d%s has finished walking on VIP channel(right-to-left) at time %d\n",
+    printf("Passenger %d%shas finished walking on VIP channel(right-to-left) at time %d\n",
                  p->id, p->isVIP?" (VIP) ":" ", curr_time);
     sem_post(&print_mutex);
 

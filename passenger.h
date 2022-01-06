@@ -4,6 +4,7 @@
 #include<cstdio>
 #include<pthread.h>
 #include<semaphore.h>
+#include<time.h>
 #include<string> 
 #include<unistd.h>
 #include<iostream>

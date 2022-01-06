@@ -20,14 +20,14 @@ bool boarding_gate_check(Passenger *p) {
     
     if (p->gotBoardingPass) {
         sem_wait(&print_mutex);
-        printf("Passenger %d%s has started waiting to be boarded at time %d\n", p->id, p->isVIP?" (VIP) ":" ",curr_time);
+        printf("Passenger %d%shas started waiting to be boarded at time %d\n", p->id, p->isVIP?" (VIP) ":" ",curr_time);
         sem_post(&print_mutex);
 
         sem_wait(&boarding_gate_mtx);
 
         curr_time = readTimeCount();
         sem_wait(&print_mutex);
-        printf("Passenger %d%s has started boarding the plane at time %d\n", p->id, p->isVIP?" (VIP) ":" ",curr_time);
+        printf("Passenger %d%shas started boarding the plane at time %d\n", p->id, p->isVIP?" (VIP) ":" ",curr_time);
         sem_post(&print_mutex);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(t_y*1000));
@@ -38,14 +38,14 @@ bool boarding_gate_check(Passenger *p) {
         curr_time = readTimeCount();
 
         sem_wait(&print_mutex);
-        printf("Passenger %d%s has boarded the plane at time %d\n", p->id, p->isVIP?" (VIP) ":" ",curr_time);
+        printf("Passenger %d%shas boarded the plane at time %d\n", p->id, p->isVIP?" (VIP) ":" ",curr_time);
         sem_post(&print_mutex);
 
         return true;
     }
     else {
         sem_wait(&print_mutex);
-        printf("Passenger %d%s has lost his/her boarding pass\n", p->id, p->isVIP?" (VIP) ":" ");
+        printf("Passenger %d%shas lost his/her boarding pass\n", p->id, p->isVIP?" (VIP) ":" ");
         sem_post(&print_mutex);
         vip_channel_backward(p);
         goto_special_kiosk(p);
