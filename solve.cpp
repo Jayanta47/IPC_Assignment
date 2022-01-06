@@ -1,26 +1,14 @@
-#include<cstdio>
-#include<pthread.h>
-#include<semaphore.h>
-#include<string> 
-#include<unistd.h>
-#include<iostream>
-#include<fstream>
-#include<math.h>
-#include<random>
-#include<vector>
 #include "TimeObj.h"
 #include "passenger.h"
 #include "timer.cpp"
 #include "poisson_dist.cpp"
 #include "kiosk.cpp"
 #include "security.cpp"
+#include "boarding_gate.cpp"
+#include "vip_channel.cpp"
 
 using namespace std;
 
-#define passengers_per_hr 10
-#define total_sim_time 60 // in minutes
-#define loose_bpass_percent 20
-#define percent_VIP 20
 
 // airport specifics holding variables
 
@@ -108,7 +96,7 @@ sem_t time_lock_mtx_r;
 sem_t psnger_dist_mtx;
  
 
-bool boarding_gate_check(Passenger *p);
+// bool boarding_gate_check(Passenger *p);
 void * passengerThread(void* arg);
 void readInputFile(string fileName);
 void *createNewPassengerThread(void *arg);
@@ -127,148 +115,6 @@ int readTimeCount() {
 
 
 
-
-void vip_channel_forward(int passenger_id) {
-    // have higher priority
-    // vip channel left-right
-    int curr_time  = readTimeCount();
-    sem_wait(&print_mutex);
-    printf("Passenger %d (VIP) has started waiting for walking on VIP channel(left-to-right) at time %d\n",
-                 passenger_id, curr_time);
-    sem_post(&print_mutex);
-
-    sem_wait(&forward_cnt_mtx);
-    vip_forward_cnt++;
-
-    curr_time = readTimeCount();
-
-    if (vip_backward_cnt == 1) {
-        sem_wait(&allow_r2l);
-        sem_wait(&dir_lock);
-    }
-    sem_post(&forward_cnt_mtx);
-
-    curr_time = readTimeCount();
-    sem_wait(&print_mutex);
-    printf("Passenger %d (VIP) has started walking on VIP channel(left-to-right) at time %d\n",
-                 passenger_id, curr_time);
-    sem_post(&print_mutex);
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(t_z*1000));
-    // sleep(t_z);
-
-    curr_time = readTimeCount();
-
-    sem_wait(&print_mutex);
-    printf("Passenger %d (VIP) has finished walking on VIP channel(left-to-right) at time %d\n",
-                 passenger_id, curr_time);
-    sem_post(&print_mutex);
-
-
-    sem_wait(&forward_cnt_mtx);
-    vip_forward_cnt--;
-    if (vip_forward_cnt == 0) {
-        sem_post(&dir_lock);
-        sem_post(&allow_r2l);
-    }
-    sem_post(&forward_cnt_mtx);
-}
-
-void vip_channel_backward(Passenger *p) {
-    int curr_time = readTimeCount();
-    sem_wait(&print_mutex);
-    printf("Passenger %d%s has started waiting for walking on VIP channel(right-to-left) at time %d\n",
-                 p->id, p->isVIP?" (VIP) ":" ", curr_time);
-    sem_post(&print_mutex);
-    sem_wait(&allow_r2l);
-    sem_post(&allow_r2l);
-
-    sem_wait(&backward_cnt_mtx);
-    vip_backward_cnt++;
-    if (vip_backward_cnt==1) {
-        sem_wait(&dir_lock);
-    }
-    sem_post(&backward_cnt_mtx);
-
-    curr_time = readTimeCount();
-
-    sem_wait(&print_mutex);
-    printf("Passenger %d%s has started walking on VIP channel(right-to-left) at time %d\n",
-                 p->id, p->isVIP?" (VIP) ":" ", curr_time);
-    sem_post(&print_mutex);
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(t_z*1000));
-    // sleep(t_z);
-
-    curr_time = readTimeCount();
-
-    sem_wait(&print_mutex);
-    printf("Passenger %d%s has finished walking on VIP channel(right-to-left) at time %d\n",
-                 p->id, p->isVIP?" (VIP) ":" ", curr_time);
-    sem_post(&print_mutex);
-
-    sem_wait(&backward_cnt_mtx);
-    vip_backward_cnt--;
-    if (vip_backward_cnt==0) {
-        sem_post(&dir_lock);
-    }
-    sem_post(&backward_cnt_mtx);
-
-
-
-}
-
-
-bool boarding_gate_check(Passenger *p) {
-    // changing the availability of boarding pass
-    // letting lose_bpass_percent number of passengers to loose boarding pass
-
-    int r_num = abs(random())%100+1;
-    if (r_num>=100-loose_bpass_percent) p->gotBoardingPass = false;
-
-    int curr_time = readTimeCount();
-    
-    if (p->gotBoardingPass) {
-        sem_wait(&print_mutex);
-        printf("Passenger %d%s has started waiting to be boarded at time %d\n", p->id, p->isVIP?" (VIP) ":" ",curr_time);
-        sem_post(&print_mutex);
-
-        sem_wait(&boarding_gate_mtx);
-
-        curr_time = readTimeCount();
-        sem_wait(&print_mutex);
-        printf("Passenger %d%s has started boarding the plane at time %d\n", p->id, p->isVIP?" (VIP) ":" ",curr_time);
-        sem_post(&print_mutex);
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(t_y*1000));
-        // sleep(t_y);
-
-        sem_post(&boarding_gate_mtx);
-
-        curr_time = readTimeCount();
-
-        sem_wait(&print_mutex);
-        printf("Passenger %d%s has boarded the plane at time %d\n", p->id, p->isVIP?" (VIP) ":" ",curr_time);
-        sem_post(&print_mutex);
-
-        return true;
-    }
-    else {
-        sem_wait(&print_mutex);
-        printf("Passenger %d%s has lost his/her boarding pass\n", p->id, p->isVIP?" (VIP) ":" ");
-        sem_post(&print_mutex);
-        vip_channel_backward(p);
-        goto_special_kiosk(p);
-
-
-    }
-
-    return false;
-
-
-}
-
-
 void * passengerThread(void* arg) {
     Passenger* p = ((Passenger*)arg);
     arg = nullptr;
@@ -277,17 +123,12 @@ void * passengerThread(void* arg) {
 
     // Inside the security check
     if (!p->isVIP) {
-        
         security_check(p);
-
     }
     else {
         // move through the vip belt
         vip_channel_forward(p->id);
     }
-    
-    
-
     boarding_gate_check(p);
 
 }
@@ -355,20 +196,10 @@ int main(void) {
 
     t.setTimeout(total_sim_time*1000*3);
     t.setInterval(1000);
-    // pthread_t *stdt = t.setInterval(1000);
 
     Timer t2(false);
     t2.setTimeout(total_sim_time*1000);
     t2.setInterval(1000);
-    // pthread_t *stdt2 = t2.setInterval(1000);
-    
-
-    // testFunc();
-    // pthread_t pt1;
-    // Passenger *p1 = new Passenger;
-    // p1->id = 10;
-    // p1->isVIP = false;
-    // pthread_create(&pt1, NULL, passengerThread, (void*)p1);
 
     // while(1);
 

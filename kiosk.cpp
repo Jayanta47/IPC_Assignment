@@ -1,7 +1,4 @@
 #include "passenger.h"
-#include<cstdio>
-#include<semaphore.h>
-#include<vector>
 
 
 using namespace std;

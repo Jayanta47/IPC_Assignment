@@ -1,7 +1,6 @@
-#include<random>
+
 #include "passenger.h"
-#include<semaphore.h>
-#include<vector>
+
 
 extern int n_belts;
 extern int t_x;
