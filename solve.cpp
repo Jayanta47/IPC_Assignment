@@ -8,12 +8,19 @@
 #include<math.h>
 #include<random>
 #include<vector>
+#include "TimeObj.h"
+#include "passenger.h"
+#include "timer.cpp"
+#include "poisson_dist.cpp"
+#include "kiosk.cpp"
+#include "security.cpp"
 
 using namespace std;
 
-#define passengers_per_hr 200
+#define passengers_per_hr 10
 #define total_sim_time 60 // in minutes
 #define loose_bpass_percent 20
+#define percent_VIP 20
 
 // airport specifics holding variables
 
@@ -35,6 +42,15 @@ int time_counter = 0;
 int current_kiosk = 1;
 int vip_forward_cnt = 0;
 int vip_backward_cnt = 0;
+int t_pass;
+int global_pssnger_id;
+
+// time extracting read and write count
+int writeCount;
+int readCount;
+
+// pointer to extract the time from TimeObj Class
+TimeObj *t_ctr;
 
 vector<bool> kiosk_slots;
 
@@ -80,131 +96,51 @@ sem_t dir_lock;
 // special kiosk mutex
 sem_t special_kiosk_mtx;
 
-struct Passenger {
-    int id;
-    bool isVIP;
-    bool gotBoardingPass;
-};
+// all the necessary binary semaphores for time count read and write
 
+sem_t time_lock_mtx_1; 
+sem_t time_lock_mtx_2; 
+sem_t time_lock_mtx_3; 
+sem_t time_lock_mtx_w;
+sem_t time_lock_mtx_r;
 
-void readInputFile(string fileName) {
-    ifstream InputFile(fileName);
-    int num;
+// semaphore to restrict trhe access to Passengers distribution
+sem_t psnger_dist_mtx;
+ 
+
+bool boarding_gate_check(Passenger *p);
+void * passengerThread(void* arg);
+void readInputFile(string fileName);
+void *createNewPassengerThread(void *arg);
+
+int readTimeCount() {
+    sem_wait(&time_lock_mtx_1);
+    sem_post(&time_lock_mtx_1);
+
+    sem_wait(&time_lock_mtx_2);
+    int timeCnt = t_ctr->readTime();
+    sem_post(&time_lock_mtx_2);
     
-    if (!InputFile.is_open()) {
-        printf("Failed to Open File: %s\n", fileName.c_str());
-        return;
-    }
-
-    vector<int> values;
-
-    while(InputFile>>num) {
-        values.push_back(num);
-    }
-
-    n_kiosk = values[0];
-    n_belts = values[1];
-    n_pass_per_belt = values[2];
-
-    t_w = values[3];
-    t_x = values[4];
-    t_y = values[5];
-    t_z = values[6];
-    
-    // printf("%d %d %d %d %d %d %d\n", 
-    //             n_kiosk, n_belts, n_pass_per_belt, t_w, t_x, t_y, t_z);
+    return timeCnt;
 
 }
 
 
-void poisson_dist_func() {
-    // const int nrolls = 10000; // number of experiments
-    const int nstars = passengers_per_hr;   // maximum number of stars to distribute
 
-    std::default_random_engine generator;
-    std::poisson_distribution<int> distribution(total_sim_time/2);
-
-    passengerFreq = new int[total_sim_time] {};
-
-    for (int i=0; i<nstars; ++i) {
-        int number = distribution(generator);
-        // cout<<number<<endl;
-        if (number<total_sim_time) ++passengerFreq[number];
-    }
-
-
-}
-
-void generatePassengerFreq() {
-    poisson_dist_func();
-    if (passengerFreq == nullptr){
-        cout<<"null"<<endl;
-    }
-    // std::cout << "poisson_distribution:" << std::endl;
-    // for (int i=0; i<total_sim_time; ++i)
-    //     std::cout << i << ": " << std::string(passengerFreq[i],'*') << std::endl;
-}
-
-
-void kiosk_check(int passenger_id) {
-
-    sem_wait(&print_mutex);
-    printf("Passenger %d has arrived at the airport at time %d\n", passenger_id, time_counter);
-    sem_post(&print_mutex);
-
-    int current_kiosk;
-    // waiting for the kiosk
-    sem_wait(&kiosk_mtx);
-    sem_wait(&kiosk_slot_mtx);
-    for( current_kiosk=0;current_kiosk<n_kiosk;current_kiosk++) {
-        if (kiosk_slots[current_kiosk]) {
-            kiosk_slots[current_kiosk] = false;
-            break;
-        } 
-    }
-    sem_post(&kiosk_slot_mtx);
-    if (current_kiosk == n_kiosk) current_kiosk=0;
-    int curr_time = time_counter;
-
-// should this be done outside the critical region??
-    sem_wait(&print_mutex);
-    printf("Passenger %d has started self check in at kiosk %d at time %d\n", passenger_id, current_kiosk+1, curr_time);
-    sem_post(&print_mutex);
-
-
-    sleep(t_w);
-
-    curr_time = curr_time+t_w; // NOTICE THIS
-
-    sem_wait(&kiosk_slot_mtx);
-    if (current_kiosk==0 && kiosk_slots[0]==false) {
-        kiosk_slots[0] = true;
-    }
-    else {
-        kiosk_slots[current_kiosk] = true;
-    }
-    sem_post(&kiosk_slot_mtx);
-
-    sem_post(&kiosk_mtx);
-
-    sem_wait(&print_mutex);
-    printf("Passenger %d has finished check in at time %d\n", passenger_id, curr_time);
-    sem_post(&print_mutex);
-}
 
 void vip_channel_forward(int passenger_id) {
     // have higher priority
     // vip channel left-right
-    int curr_time  = time_counter;
+    int curr_time  = readTimeCount();
     sem_wait(&print_mutex);
-    printf("Passenger %d has started waiting for walking on VIP channel(left-to-right) at time %d\n",
-                 passengerID, curr_time);
+    printf("Passenger %d (VIP) has started waiting for walking on VIP channel(left-to-right) at time %d\n",
+                 passenger_id, curr_time);
     sem_post(&print_mutex);
 
     sem_wait(&forward_cnt_mtx);
     vip_forward_cnt++;
 
-    curr_time = time_counter;
+    curr_time = readTimeCount();
 
     if (vip_backward_cnt == 1) {
         sem_wait(&allow_r2l);
@@ -212,17 +148,20 @@ void vip_channel_forward(int passenger_id) {
     }
     sem_post(&forward_cnt_mtx);
 
-    curr_time = time_counter;
+    curr_time = readTimeCount();
     sem_wait(&print_mutex);
-    printf("Passenger %d has started walking on VIP channel(left-to-right) at time %d\n",
-                 passengerID, curr_time);
+    printf("Passenger %d (VIP) has started walking on VIP channel(left-to-right) at time %d\n",
+                 passenger_id, curr_time);
     sem_post(&print_mutex);
 
-    sleep(t_z);
+    std::this_thread::sleep_for(std::chrono::milliseconds(t_z*1000));
+    // sleep(t_z);
+
+    curr_time = readTimeCount();
 
     sem_wait(&print_mutex);
-    printf("Passenger %d has finished walking on VIP channel(left-to-right) at time %d\n",
-                 passengerID, curr_time+t_z);
+    printf("Passenger %d (VIP) has finished walking on VIP channel(left-to-right) at time %d\n",
+                 passenger_id, curr_time);
     sem_post(&print_mutex);
 
 
@@ -235,15 +174,14 @@ void vip_channel_forward(int passenger_id) {
     sem_post(&forward_cnt_mtx);
 }
 
-void vip_channel_backward(int passenger_id) {
+void vip_channel_backward(Passenger *p) {
+    int curr_time = readTimeCount();
+    sem_wait(&print_mutex);
+    printf("Passenger %d%s has started waiting for walking on VIP channel(right-to-left) at time %d\n",
+                 p->id, p->isVIP?" (VIP) ":" ", curr_time);
+    sem_post(&print_mutex);
     sem_wait(&allow_r2l);
     sem_post(&allow_r2l);
-    int curr_time = time_counter;
-
-    sem_wait(&print_mutex);
-    printf("Passenger %d has started waiting for walking on VIP channel(right-to-left) at time %d\n",
-                 passengerID, curr_time);
-    sem_post(&print_mutex);
 
     sem_wait(&backward_cnt_mtx);
     vip_backward_cnt++;
@@ -252,18 +190,21 @@ void vip_channel_backward(int passenger_id) {
     }
     sem_post(&backward_cnt_mtx);
 
-    curr_time = time_counter;
+    curr_time = readTimeCount();
 
     sem_wait(&print_mutex);
-    printf("Passenger %d has started walking on VIP channel(right-to-left) at time %d\n",
-                 passengerID, curr_time);
+    printf("Passenger %d%s has started walking on VIP channel(right-to-left) at time %d\n",
+                 p->id, p->isVIP?" (VIP) ":" ", curr_time);
     sem_post(&print_mutex);
 
-    sleep(t_z);
+    std::this_thread::sleep_for(std::chrono::milliseconds(t_z*1000));
+    // sleep(t_z);
+
+    curr_time = readTimeCount();
 
     sem_wait(&print_mutex);
-    printf("Passenger %d has finished walking on VIP channel(right-to-left) at time %d\n",
-                 passengerID, curr_time+t_z);
+    printf("Passenger %d%s has finished walking on VIP channel(right-to-left) at time %d\n",
+                 p->id, p->isVIP?" (VIP) ":" ", curr_time);
     sem_post(&print_mutex);
 
     sem_wait(&backward_cnt_mtx);
@@ -277,31 +218,6 @@ void vip_channel_backward(int passenger_id) {
 
 }
 
-void goto_special_kiosk(Passenger *p) {
-    int curr_time;
-
-    sem_wait(&special_kiosk_mtx);
-
-    curr_time = time_counter;
-
-    sem_wait(&print_mutex);
-    printf("Passenger %d has started self-check in at special kiosk at time %d\n", p->id, curr_time);
-    sem_post(&print_mutex);
-
-    sleep(t_w);
-    p->gotBoardingPass = true;
-
-    sem_post(&special_kiosk_mtx);
-
-    sem_wait(&print_mutex);
-    printf("Passenger %d has finished check in at special kiosk at time %d\n", p->id, curr_time+t_w);
-    sem_post(&print_mutex);
-
-    vip_channel_forward(p->id);
-    boarding_gate_check(p); // notice, should it not be implemented in vip gate forward?
-
-
-}
 
 bool boarding_gate_check(Passenger *p) {
     // changing the availability of boarding pass
@@ -310,32 +226,38 @@ bool boarding_gate_check(Passenger *p) {
     int r_num = abs(random())%100+1;
     if (r_num>=100-loose_bpass_percent) p->gotBoardingPass = false;
 
-    int curr_time = time_counter;
+    int curr_time = readTimeCount();
     
     if (p->gotBoardingPass) {
         sem_wait(&print_mutex);
-        printf("Passenger %d has started waiting to be boarded at time %d\n", p->id, curr_time);
+        printf("Passenger %d%s has started waiting to be boarded at time %d\n", p->id, p->isVIP?" (VIP) ":" ",curr_time);
         sem_post(&print_mutex);
 
         sem_wait(&boarding_gate_mtx);
 
-        curr_time = time_counter;
+        curr_time = readTimeCount();
         sem_wait(&print_mutex);
-        printf("Passenger %d has started boarding the plane at time %d\n", p->id, curr_time);
+        printf("Passenger %d%s has started boarding the plane at time %d\n", p->id, p->isVIP?" (VIP) ":" ",curr_time);
         sem_post(&print_mutex);
 
-        sleep(t_y);
+        std::this_thread::sleep_for(std::chrono::milliseconds(t_y*1000));
+        // sleep(t_y);
 
         sem_post(&boarding_gate_mtx);
 
+        curr_time = readTimeCount();
+
         sem_wait(&print_mutex);
-        printf("Passenger %d has boarded the plane at time %d\n", p->id, curr_time+t_y);
+        printf("Passenger %d%s has boarded the plane at time %d\n", p->id, p->isVIP?" (VIP) ":" ",curr_time);
         sem_post(&print_mutex);
 
         return true;
     }
     else {
-        vip_channel_backward(p->id);
+        sem_wait(&print_mutex);
+        printf("Passenger %d%s has lost his/her boarding pass\n", p->id, p->isVIP?" (VIP) ":" ");
+        sem_post(&print_mutex);
+        vip_channel_backward(p);
         goto_special_kiosk(p);
 
 
@@ -346,40 +268,17 @@ bool boarding_gate_check(Passenger *p) {
 
 }
 
+
 void * passengerThread(void* arg) {
     Passenger* p = ((Passenger*)arg);
     arg = nullptr;
 
-    kiosk_check(p->id);
+    kiosk_check(p);
 
     // Inside the security check
     if (!p->isVIP) {
-        // if the passenger is not a VIP, s/he has to go through the security check
-        // randomly select any belt to keep in line
-        int index = abs(random())%n_belts;
-        sem_t *security_mtx = &security_check_semaphores.at(index);
-
-        int curr_time = time_counter;
-        sem_wait(&print_mutex);
-        printf("Passenger %d has started waiting for security check in belt %d from time %d\n", p->id, index, curr_time);
-        sem_post(&print_mutex);
-        sem_wait(security_mtx);
         
-        curr_time = time_counter;
-        sem_wait(&print_mutex);
-        printf("Passenger %d has started the security check at time %d\n", p->id, curr_time);
-        sem_post(&print_mutex);
-
-        sleep(t_x);
-
-        sem_post(security_mtx);
-
-        p->gotBoardingPass = true;
-
-        sem_wait(&print_mutex);
-        printf("Passenger %d has crossed the security check at time %d\n", p->id, curr_time+t_x);
-        sem_post(&print_mutex);
-
+        security_check(p);
 
     }
     else {
@@ -397,7 +296,7 @@ void * passengerThread(void* arg) {
 int main(void) {
 
     readInputFile("input.txt");
-    generatePassengerFreq();
+    poisson_dist_func(passengers_per_hr, total_sim_time);
 
     // initializing semaphores
     sem_init(&print_mutex, 0, 1);
@@ -435,20 +334,99 @@ int main(void) {
     sem_init(&dir_lock, 0, 1);
 
     sem_init(&special_kiosk_mtx, 0, 1);
+
+        // timer lock semaphores
+    sem_init(&time_lock_mtx_1, 0, 1);
+    sem_init(&time_lock_mtx_2, 0, 1);
+    sem_init(&time_lock_mtx_3, 0, 1);
+    sem_init(&time_lock_mtx_w, 0, 1);
+    sem_init(&time_lock_mtx_r, 0, 1);
+
+        // passenger dist lock
+    sem_init(&psnger_dist_mtx, 0, 1);
+
+        // initializing time lock based reader and writer count 
+    writeCount = 0;
+    readCount = 0;
+    global_pssnger_id = 1;
+    t_ctr = new TimeObj();
+
+    Timer t(true);
+
+    t.setTimeout(total_sim_time*1000*3);
+    t.setInterval(1000);
+    // pthread_t *stdt = t.setInterval(1000);
+
+    Timer t2(false);
+    t2.setTimeout(total_sim_time*1000);
+    t2.setInterval(1000);
+    // pthread_t *stdt2 = t2.setInterval(1000);
     
 
     // testFunc();
-    pthread_t pt1;
-    Passenger *p1 = new Passenger;
-    p1->id = 10;
-    p1->isVIP = false;
-    pthread_create(&pt1, NULL, passengerThread, (void*)p1);
+    // pthread_t pt1;
+    // Passenger *p1 = new Passenger;
+    // p1->id = 10;
+    // p1->isVIP = false;
+    // pthread_create(&pt1, NULL, passengerThread, (void*)p1);
 
-    while(1);
+    // while(1);
+
+    pthread_exit(NULL);
+
     return 0;
 }
 
 
+void readInputFile(string fileName) {
+    ifstream InputFile(fileName);
+    int num;
+    
+    if (!InputFile.is_open()) {
+        printf("Failed to Open File: %s\n", fileName.c_str());
+        return;
+    }
+
+    vector<int> values;
+
+    while(InputFile>>num) {
+        values.push_back(num);
+    }
+
+    n_kiosk = values[0];
+    n_belts = values[1];
+    n_pass_per_belt = values[2];
+
+    t_w = values[3];
+    t_x = values[4];
+    t_y = values[5];
+    t_z = values[6];
+    
+    // printf("%d %d %d %d %d %d %d\n", 
+    //             n_kiosk, n_belts, n_pass_per_belt, t_w, t_x, t_y, t_z);
+
+}
+
+void *createNewPassengerThread(void *arg) {
+    int *timeslot = (int*) arg;
+    arg = nullptr;
+    // cout<<"threading here "<<*timeslot<<endl;
+    if (*timeslot < total_sim_time) {
+        sem_wait(&psnger_dist_mtx);
+        int fx = *(passengerFreq + *timeslot);
+        // cout<<fx<<endl;
+        pthread_t *psnger;
+        for(int i=global_pssnger_id; i<global_pssnger_id+fx;i++) {
+            psnger = new pthread_t;
+            Passenger *p = new Passenger;
+            p->id = i;
+            p->isVIP = ( (abs(random())%100+1)>=(100-percent_VIP))? true:false;
+            pthread_create(psnger, NULL, passengerThread, (void*)p);
+        }
+        global_pssnger_id+=fx;
+        sem_post(&psnger_dist_mtx);
+    }
+}
 
 
 
@@ -479,4 +457,26 @@ int main(void) {
 //     for(int i=0;i<20;i++) {
 //         cout<<i<<" : "<<p[i]<<endl;
 //     }
+// }
+
+
+
+// int readTimeCount() {
+//     sem_wait(&time_lock_mtx_3);
+//     sem_wait(&time_lock_mtx_r);
+//     sem_wait(&time_lock_mtx_1);
+//     readCount++;
+//     if (readCount==1) sem_wait(&time_lock_mtx_w);
+//     sem_post(&time_lock_mtx_1);
+//     sem_post(&time_lock_mtx_r);
+//     sem_post(&time_lock_mtx_3);
+
+//     int timeCnt = t_ctr->readTime();
+
+//     sem_wait(&time_lock_mtx_1);
+//     readCount--;
+//     if (readCount==0) sem_post(&time_lock_mtx_w);
+//     sem_post(&time_lock_mtx_1);
+//     return timeCnt;
+
 // }

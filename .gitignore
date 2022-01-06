@@ -1,3 +1,6 @@
 *.txt
 *.out
 test.cpp
+pj.*
+.vscode/
+timertest.cpp
