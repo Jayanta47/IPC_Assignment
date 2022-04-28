@@ -98,11 +98,11 @@ sem_t time_lock_mtx_r;
 sem_t psnger_dist_mtx;
  
 
-// bool boarding_gate_check(Passenger *p);
 void * passengerThread(void* arg);
 void readInputFile(string fileName);
 void *createNewPassengerThread(void *arg);
 
+// time reading function that uses global variable as time counter
 // int readTimeCount() {
 //     sem_wait(&time_lock_mtx_1);
 //     sem_post(&time_lock_mtx_1);
@@ -112,9 +112,9 @@ void *createNewPassengerThread(void *arg);
 //     sem_post(&time_lock_mtx_2);
     
 //     return timeCnt;
-
 // }
 
+// time reading function that uses system time
 int readTimeCount() {
     sem_wait(&time_lock_mtx_3);
     time_t end = time(NULL);
@@ -138,7 +138,7 @@ void * passengerThread(void* arg) {
     }
     else {
         // move through the vip belt
-        vip_channel_forward(p->id);
+        vip_channel_forward(p);
     }
     boarding_gate_check(p);
 
@@ -148,7 +148,18 @@ void * passengerThread(void* arg) {
 int main(void) {
 
     readInputFile("input.txt");
-    poisson_dist_func(passengers_per_hr, total_sim_time);
+    cout<<"====================================="<<endl;
+    cout<<"Airport Simulation"<<endl;
+    cout<<"====================================="<<endl;
+    cout<<"Relevant Info:"<<endl;
+    cout<<"# Self check-in at a kiosk, t_w: "<<t_w<<endl;
+    cout<<"# Security check, t_x: "<<t_x<<endl;
+    cout<<"# Boarding at the gate, t_y: "<<t_x<<endl;
+    cout<<"# Walking on VIP channel, t_z: "<<t_z<<endl;
+    cout<<"# Passenger arrival rate: "<<passengers_per_hr<<" /hour"<<endl;
+    cout<<"# Total simulation time: "<<total_sim_time<<" minutes"<<endl;
+
+    poisson_dist_func(passengers_per_hr, total_sim_time, psnger_create_diff);
 
     // initializing semaphores
     sem_init(&print_mutex, 0, 1);
@@ -200,19 +211,26 @@ int main(void) {
         // initializing time lock based reader and writer count 
     writeCount = 0;
     readCount = 0;
+
     global_pssnger_id = 1;
-    t_ctr = new TimeObj();
 
-    Timer t(true);
+    srand(time(nullptr));
 
+        // record the beginning time of the simulation
     t_begin = time(NULL);
 
-    t.setTimeout(total_sim_time*1000*3);
-    t.setInterval(1000);
+    if (!system_time_sim) {
+        t_ctr = new TimeObj();
+        Timer t(true);
+        t.setTimeout(total_sim_time*1000*3);
+        t.setInterval(1000);
+    }
 
+
+        // Timer to create passengers
     Timer t2(false);
     t2.setTimeout(total_sim_time*1000);
-    t2.setInterval(1000);
+    t2.setInterval(psnger_create_diff*1000);
 
     // while(1);
 
@@ -255,7 +273,7 @@ void *createNewPassengerThread(void *arg) {
     int *timeslot = (int*) arg;
     arg = nullptr;
     // cout<<"threading here "<<*timeslot<<endl;
-    if (*timeslot < total_sim_time) {
+    if (*timeslot < (total_sim_time/psnger_create_diff)) {
         sem_wait(&psnger_dist_mtx);
         int fx = *(passengerFreq + *timeslot);
         // cout<<fx<<endl;
@@ -271,12 +289,6 @@ void *createNewPassengerThread(void *arg) {
         sem_post(&psnger_dist_mtx);
     }
 }
-
-
-
-
-
-
 
 
 

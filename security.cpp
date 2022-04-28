@@ -21,6 +21,7 @@ void security_check(Passenger *p) {
     sem_wait(&print_mutex);
     printf("Passenger %d has started waiting for security check in belt %d from time %d\n", p->id, index, curr_time);
     sem_post(&print_mutex);
+    
     sem_wait(security_mtx);
     
     curr_time = readTimeCount();

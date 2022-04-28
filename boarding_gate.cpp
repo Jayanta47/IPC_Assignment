@@ -13,6 +13,7 @@ bool boarding_gate_check(Passenger *p) {
     // changing the availability of boarding pass
     // letting lose_bpass_percent number of passengers to loose boarding pass
 
+    srand(time(nullptr));
     int r_num = abs(random())%100+1;
     if (r_num>=100-loose_bpass_percent) p->gotBoardingPass = false;
 
@@ -47,6 +48,7 @@ bool boarding_gate_check(Passenger *p) {
         sem_wait(&print_mutex);
         printf("Passenger %d%shas lost his/her boarding pass\n", p->id, p->isVIP?" (VIP) ":" ");
         sem_post(&print_mutex);
+        
         vip_channel_backward(p);
         goto_special_kiosk(p);
 

@@ -8,7 +8,7 @@ extern vector<bool> kiosk_slots;
 extern int t_w;
 
 extern int readTimeCount();
-extern void vip_channel_forward(int passenger_id);
+extern void vip_channel_forward(Passenger *p);
 bool boarding_gate_check(Passenger *p);
 
 extern sem_t print_mutex;
@@ -89,7 +89,7 @@ void goto_special_kiosk(Passenger *p) {
     printf("Passenger %d%shas finished check in at special kiosk at time %d\n", p->id, p->isVIP?" (VIP) ":" ", curr_time+t_w);
     sem_post(&print_mutex);
 
-    vip_channel_forward(p->id);
+    vip_channel_forward(p);
     boarding_gate_check(p); // notice, should it not be implemented in vip gate forward?
 
 

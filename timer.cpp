@@ -26,6 +26,12 @@ extern TimeObj *t_ctr;
 
 pthread_t *psngr_create;
 
+int slotCount = 0;
+
+int readSlotCount() {
+    slotCount++;
+    return slotCount-1;
+}
 
 class Timer {
      bool clear;
@@ -49,7 +55,7 @@ void Timer::setTimeout(int delay) {
         if(this->clear) return;
         std::this_thread::sleep_for(std::chrono::milliseconds(delay));
         if(this->clear) return;
-        cout<<"stopping thread"<<endl;
+        // cout<<"stopping thread"<<endl;
         clear = true;
     });
     t.detach();
@@ -60,19 +66,12 @@ void Timer::setInterval(int interval) {
     std::thread t([=]() {
         while(true) {
             if(this->clear) return;
-            // t_pass = t_ctr->readTime();
-            // psngr_create = new pthread_t;
-            // pthread_create(psngr_create, NULL, createNewPassengerThread, (void*)&t_pass);
-            // if (pthread_detach(*psngr_create)) {
-            //     cerr<<"error"<<endl;
-            // }
             
             if (this->passengerCreateType) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(interval));
                 if(this->clear) return;
-                t_pass = readTimeCount()-1;
+                t_pass = readSlotCount();
                 psngr_create = new pthread_t;
-                // cout<<"start"<<endl;
                 pthread_create(psngr_create, NULL, createNewPassengerThread, (void*)&t_pass);
                 if (pthread_detach(*psngr_create)) {
                     cerr<<"error"<<endl;
@@ -83,8 +82,7 @@ void Timer::setInterval(int interval) {
                 if(this->clear) return;
                 sem_wait(&time_lock_mtx_1);
                 sem_wait(&time_lock_mtx_2);
-                t_ctr->incCounter();
-                
+                if (t_ctr != nullptr) t_ctr->incCounter();               
                 sem_post(&time_lock_mtx_2);
                 sem_post(&time_lock_mtx_1);
             }
